@@ -1,6 +1,7 @@
 #![allow(unused_parens)]
 
 use std::io;
+use std::rc::Rc;
 
 /*Task:
 Create a sophisticated linked list class. You should be able to insert and delete nodes anywhere in the list, 
@@ -9,8 +10,6 @@ and the nodes should have pointers to nodes both in front and behind them.*/
 /*Breaking it down:
 Linked list: structure with fields a field for value, the node before it, and a pointer to the next object in the list
 insert and delete nodes: these will be methods implementing the linked list struct*/
-
-//debug: so for some weird reason, this just isn't working and I have no idea why. I think it's because I keep cloning the nodes as a workaround
 
 static mut INDEX : i32 = 0;
 
@@ -39,42 +38,27 @@ fn main() {
             io::stdin()
                 .read_line(&mut value)
                 .expect("Error!");
-            let value = value.trim().parse::<i32>().unwrap();
-            list.add(value);
+            let value : i32 = value.trim().parse::<i32>().unwrap();
+            list = list.add(value);
         }
         else{
+            println!("Here is your initial Linked List:");
+            list.head.unwrap().to_string();
             break
-        }
-    }
-
-    println!("Here is your initial Linked List:");
-    list.to_string(list.head.as_ref().unwrap());
-
-    println!("Do you want to insert or delete a node? type your answer in lowercase");
-    io::stdin()
-        .read_line(&mut choice)
-        .expect("Error!");
-
-    unsafe{ //we need to do this to tell rust that we understand that what we're trying to do is unsafe
-        if (choice.trim() == "insert"){
-            list.insert();
-        }
-        if(choice.trim() == "delete"){
-            list.delete();
         }
     }
 }
 
 
 //Create the linked list and node struct
-#[derive(Clone)]
-#[derive(Debug)]
+#[derive(Clone,Debug)]
 struct Node{
     before : Option<Box<Node>>, //use Box here so we have a set size for the reference which satisfies the issue with the recursive struct
     value : Option<i32>, 
     after : Option<Box<Node>>, 
 }
 
+#[derive(Clone,Debug)]
 struct LinkedList{
     head : Option<Node>,
     length : i32
@@ -82,9 +66,8 @@ struct LinkedList{
 
 //Create the necessary methods
 impl LinkedList{
-    //appends a node to the end of the linked list
-    fn add(&mut self, num : i32){
-        if(self.length == 0){ //checks if the linked list is empty
+    fn add(mut self , num : i32) -> LinkedList{
+        if(self.length == 0){ //adds the head of the linked list if the linked list is empty
             let new_node = Node{
                 before : None,
                 value : Some(num),
@@ -92,136 +75,42 @@ impl LinkedList{
             };
             self.head = Some(new_node);
         }
-        else{ 
+        else{ //adds the node to the end of the linked list
+            let mut last = self.clone().head.unwrap().last(); //debug: clone
             let new_node = Node{
-                before : Some(Box::new(LinkedList::last(&self.head.as_ref().unwrap()))),
+                //Note: look into take() some more. got it from this link https://tinyurl.com/2kl6rj6r
+                //traverses through the linked list to find the last node
+                before : Some(Box::new(last.clone())),//debug: clone
                 value : Some(num),
                 after : None
             };
-            //gets the pointer of the previous last node and points it to this one
-            LinkedList::last(&self.head.as_ref().unwrap()).after = Some(Box::new(new_node)); //debug: okay this is the problem line. I need to find some way to alter the head. that's the key.
+            println!("{:?}",new_node);
+            //debug: I think the line below is what's causing all of the trouble. For some reason it ain't altering what I need it to alter
+            last.after = Some(Box::new(new_node)); //changes the node before the new node so it points to the new node
         }
         self.length += 1;
+        self
+    }
+}
+
+impl Node{
+    fn last(self) -> Node{
+        match self.after{
+            //debug: need to dereference argument
+            None => self,
+            _ => Node::last(*self.after.unwrap())
+        }
     }
 
-    //returns the last node in the linked list
-    fn last(node : &Node) -> Node{
-        if(node.after.is_none()){ //if the node doesn't have anything after it then it is the last node
-            return node.clone()
+    //traverses through the nodes in the linked list and prints them in order of index
+    fn to_string(&self) -> &Node{
+        if(self.after.is_none()){
+            println!("{:?}",&self);
+            return self
         }
         else{
-            return LinkedList::last(&*node.after.as_ref().unwrap()) //if the node has something after it then it then we move onto the next node
-        }
-    }
-
-    //prints the linked list in sequential order based on index
-    fn to_string(&self, node : &Node) -> Node{
-        if(node.after.is_none()){ //if the node doesn't have anything after it then it is the last node
-            println!("{:?}",node);
-            return node.clone()
-        }
-        else{
-            print!("{:?},",node.value.unwrap());
-            return LinkedList::to_string(&self, node.after.as_ref().unwrap()) //if the node has something after it then it then we move onto the next node
-        }
-    }
-
-    unsafe fn insert(&mut self){
-        let mut index = String::new();
-        let mut num = String::new();
-
-        //gets the index of the new node
-        println!("Tell me the index you want to insert the node in. If it's an invalid index, it'll be added to the end.");
-        io::stdin()
-            .read_line(&mut index)
-            .expect("Error!");
-        let index = index.trim().parse::<i32>().unwrap();
-
-        //gets the value of the new node
-        println!("What number do you want the node to have as a value?");
-        io::stdin()
-            .read_line(&mut num)
-            .expect("Error!");
-        let num = num.trim().parse::<i32>().unwrap();
-
-        if(index >= self.length-1 || index < 0){ //adds the new node to the end of the linked list
-            LinkedList::add(self, num);
-        }
-        else if(index == 0){//adds the new new node to the beginning of the linked list
-            let new_node : Node = Node{
-                before : None,
-                value : Some(num), 
-                after : Some(Box::new(LinkedList::traverse(self.head.clone().unwrap(),1))) 
-            };
-            INDEX = 0;
-            self.head.clone().unwrap().before = Some(Box::new(new_node.clone()));
-            self.head = Some(new_node.clone());
-        }
-        else{ //inserts the new node at the index, adjusting the surrounding nodes appropriately
-            let mut new_node : Node = Node{
-                before : Some(Box::new(LinkedList::traverse(self.head.clone().unwrap(),index-1))),
-                value : Some(num), 
-                after : None 
-            };
-            INDEX = 0;
-            new_node.after = Some(Box::new(LinkedList::traverse(self.head.clone().unwrap(),index+1)));
-            INDEX = 0;
-            LinkedList::traverse(self.head.clone().unwrap(),index+1).before = Some(Box::new(new_node.clone()));
-            INDEX = 0;
-            LinkedList::traverse(self.head.clone().unwrap(),index-1).after = Some(Box::new(new_node.clone()));
-            INDEX = 0;
-        }
-        self.length += 1;
-    }
-
-    unsafe fn traverse(node : Node,num : i32) -> Node{
-        if(INDEX == num){
-            INDEX = 0;
-            return node
-        }
-        else{
-            INDEX += 1;
-            println!("{}", node.value.unwrap()); //note: this is a debug statement
-            return LinkedList::traverse(*node.after.unwrap(), num)
-        }
-    }
-
-    unsafe fn delete(&mut self){
-        let mut invalid = true;
-        let mut index = 0;
-
-        //gets index of element we wanna delete and checks if the index is correct
-        while(invalid){
-            let mut input = String::new();
-
-            println!("Tell me the index of the node you want to delete");
-            io::stdin()
-                .read_line(&mut input)
-                .expect("Error!");
-            index = input.trim().parse::<i32>().unwrap();
-
-            if(index < 0 || index > self.length-1){
-                println!("Invalid index! Try again.")
-            }
-            else{
-                invalid = false;
-            }
-        }
-
-        if(index == 0){ //deletes first index
-            LinkedList::traverse(self.head.clone().unwrap(), 1).before = None;
-            self.head = Some(LinkedList::traverse(self.head.clone().unwrap(), 1));
-            self.length -= 1;
-        }
-        else if(index == self.length-1){ //deletes last index
-            LinkedList::traverse(self.head.clone().unwrap(), self.length-1).before = None;
-            LinkedList::traverse(self.head.clone().unwrap(), self.length-2).after = None;
-            self.length -= 1;
-        }
-        else{ //deletes specified index
-            LinkedList::traverse(self.head.clone().unwrap(), index+1).before = Some(Box::new(LinkedList::traverse(self.head.clone().unwrap(), index-1)));
-            LinkedList::traverse(self.head.clone().unwrap(), index-1).after = Some(Box::new(LinkedList::traverse(self.head.clone().unwrap(), index+1)));
-            self.length -= 1;
+            print!("{:?},",self.value.unwrap());
+            return Node::to_string(self.after.as_ref().unwrap()) //if the node has something after it then it then we move onto the next node
         }
     }
 }
