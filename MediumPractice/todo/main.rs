@@ -33,6 +33,9 @@ fn main() -> Result<()>{
 
     //Loop that gets user inputs and acts accordingly
     loop{
+        println!("ToDo List:");
+        print_list(&conn)?;
+
         //get the user's input for what they want to do with the todo list
         let mut input = String::new();
         println!("Action? add,complete,delete,done");
@@ -50,17 +53,21 @@ fn main() -> Result<()>{
             &_ => error()?
         };
 
-        print_list(&conn)?;
+        
     }
-
-    println!("Okay here's your final todo list:");
-    print_list(&conn)?;
 
     //test(&conn);
     Ok(())
 }
 
 fn add(connection : &Connection) -> Result<()>{
+
+    //resets the ID if it's empty so we will always start at 1
+    connection.execute(
+        "UPDATE 'sqlite_sequence' SET 'seq' = 0 WHERE (SELECT COUNT(id) FROM ToDo) = 0",
+        []
+    )?;
+
     //gets the task that the user wants to add to the todo list
     let mut item = String::new();
     println!("What do you want to add?");
@@ -71,6 +78,7 @@ fn add(connection : &Connection) -> Result<()>{
 
     //adds the task to the database
     //debug: doesn't work if it already exists
+    //debug: id doesn't reset back to 1 if the thing is empty. crap
     connection.execute(
         "INSERT INTO ToDo (Task,Status) VALUES (?1,?2)",
         params![item,"Incomplete"],
@@ -91,7 +99,7 @@ fn complete(connection : &Connection) -> Result<()>{
     //updates the according row so that that the task is shown as completed
     connection.execute(
         //"UPDATE (SELECT ROW_NUMBER() over () from ToDO) SET Status = 'Complete'",
-        "UPDATE ToDo SET Status = 'Complete' WHERE _rowid_ = ?1", //debug: need to figure out the rownum crap here too
+        "UPDATE ToDo SET Status = 'Complete' WHERE Id = ?1",
         params![item_num]
     )?;
 
@@ -111,7 +119,13 @@ fn delete(connection : &Connection) -> Result<()>{
 
     //deletes the according row from the table
     connection.execute(
-        "DELETE FROM ToDo WHERE _rowid_ = ?1",
+        "DELETE FROM ToDo WHERE Id = ?1",
+        params![item_num]
+    )?;
+
+    //updates the Id's of the rows after the deleted row
+    connection.execute(
+        "UPDATE ToDo SET Id = Id-1 WHERE Id > ?1",
         params![item_num]
     )?;
 
@@ -121,11 +135,12 @@ fn delete(connection : &Connection) -> Result<()>{
 //Note: Come back to this later because I don't understand how it works
 //debug: so basically the tasks and statuses have different rowid's so I gotta use the rownum instead
 fn print_list(conn: &Connection) -> Result<Vec<String>> {
+    let id = get_num(conn).unwrap();
     let tasks = get_tasks(conn).unwrap();
     let statuses = get_status(conn).unwrap();
 
     for i in (0..tasks.len()){
-        println!("{}. {:?} | {:?}",i+1,tasks.get(i).unwrap(),statuses.get(i).unwrap());
+        println!("{:?}. {:?} | {:?}",id.get(i).unwrap(),tasks.get(i).unwrap(),statuses.get(i).unwrap());
     }
 
     Ok(tasks)
@@ -136,7 +151,7 @@ fn get_tasks(conn: &Connection) -> Result<Vec<String>>{
     //prepares the statement that will be executed
     //debug:for some reason this keeps organizing the tasks in alphabetical order?
     //solution: so for some reason doing "Select Task from ToDo" kept ordering the rows implicitly? not sure why though
-    let mut stmt = conn.prepare("SELECT * FROM ToDo")?;
+    let mut stmt = conn.prepare("SELECT Task FROM ToDo")?;
 
     //executes the statement and applies the row.get(0) function on every row so we get all of the items
     let items = stmt.query_map([], |row| row.get(0))?;
@@ -152,14 +167,25 @@ fn get_tasks(conn: &Connection) -> Result<Vec<String>>{
 
 //gets the statuses of the items to print
 fn get_status(conn : &Connection) -> Result<Vec<String>>{
-    let mut stmt2 = conn.prepare("SELECT Status FROM ToDo")?;
-    let completeness = stmt2.query_map([], |row| row.get(0))?;
+    let mut stmt = conn.prepare("SELECT Status FROM ToDo")?;
+    let completeness = stmt.query_map([], |row| row.get(0))?;
     let mut statuses = Vec::new();
     for status in completeness{
         statuses.push(status?);
     }
 
     Ok(statuses)
+}
+
+fn get_num(conn : &Connection) -> Result<Vec<i32>>{
+    let mut stmt = conn.prepare("SELECT Id FROM ToDo")?;
+    let id = stmt.query_map([], |row| row.get(0))?;
+    let mut numbers = Vec::new();
+    for number in id{
+        numbers.push(number?);
+    }
+
+    Ok(numbers)
 }
 
 fn error() -> Result<()>{
